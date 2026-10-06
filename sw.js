@@ -12,7 +12,7 @@
    "Hay una actualización disponible".
    ===================================================================== */
 
-const CACHE = 'roller-v1';
+const CACHE = 'roller-v2';
 
 const ASSETS = [
   './',
@@ -36,10 +36,14 @@ self.addEventListener('install', (event) => {
 });
 
 // Activación: borra las cachés de versiones anteriores y toma el control.
+// Solo toca las que empiezan con "roller-": en GitHub Pages todos los repos
+// comparten el mismo origen (usuario.github.io) y no hay que borrar las de otras apps.
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
-      .then((claves) => Promise.all(claves.filter((c) => c !== CACHE).map((c) => caches.delete(c))))
+      .then((claves) => Promise.all(
+        claves.filter((c) => c.startsWith('roller-') && c !== CACHE).map((c) => caches.delete(c))
+      ))
       .then(() => self.clients.claim())
   );
 });
