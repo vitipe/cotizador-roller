@@ -6,13 +6,14 @@
      conexión usa la copia guardada.
    · Resto de archivos: primero caché.
 
-   CADA VEZ QUE PUBLIQUES CAMBIOS, SUBÍ EL NÚMERO DE VERSIÓN:
-   roller-v1 → roller-v2 → roller-v3 ...
-   Así el navegador detecta la versión nueva y la app muestra
-   "Hay una actualización disponible".
+   VERSIÓN: no hace falta tocarla a mano. Al publicar, GitHub Actions
+   (.github/workflows/publicar.yml) reemplaza la línea `const CACHE`
+   por una versión nueva (fecha + commit). Así el navegador detecta la
+   versión nueva y la app muestra "Hay una actualización disponible".
+   El valor de abajo solo se usa al probar en la compu.
    ===================================================================== */
 
-const CACHE = 'roller-v2';
+const CACHE = 'roller-dev';
 
 const ASSETS = [
   './',

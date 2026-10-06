@@ -13,18 +13,30 @@ HTML, CSS y JS puros, sin dependencias. Funciona sin internet una vez abierta.
 | `storage.js` | Guardado en el teléfono (localStorage) y backup JSON |
 | `app.js` | Pantallas y botones |
 | `sw.js` | Service worker (modo offline y actualizaciones) |
+| `tests/calc.test.js` | Pruebas automáticas de las cuentas |
+| `.github/workflows/publicar.yml` | Publicación automática en GitHub Pages |
 | `manifest.json` | Datos para instalar la app |
 | `icon.svg`, `icon-192.png`, `icon-512.png` | Ícono |
 
 ## Fórmulas (en `calc.js`)
 
+- **Medida final:** ancho × alto, o con **3 puntos** la más chica de cada medida (dentro del vano) o la más grande (fuera del vano)
 - m² reales = ancho × alto ÷ 10.000 · m² facturables = el mayor entre m² reales y el mínimo
 - Tubo/mecanismo: el primer rango cuyo "hasta" alcance el ancho
-- Corte de tela = (ancho − desc. tela) × (alto + agregado)
+- Corte de tela = (ancho − desc. tela) × (alto + agregado). Si no entra en el rollo y la tela "se puede cortar girada", se gira
 - Tubo = ancho − desc. tubo · Contrapeso = ancho − desc. contrapeso · Cadena = alto × factor
-- Costo = tela (m² facturables × $/m²) + tubo + mecanismo + contrapeso + cadena + mano de obra + adicionales activos
-- Precio = costo × (1 + margen %)
+- **Tela** (a elección): m² facturables, tela cortada o ancho de rollo completo; con mínimo y % de desperdicio
+- **Tubo** (a elección): por metro usado, o por barra entera (se arman las barras del pedido aprovechando sobrantes y el costo se reparte entre las cortinas)
+- Costo = tela + tubo + mecanismo + contrapeso + cadena + mano de obra + adicionales activos
+- Precio = costo × (1 + margen %), redondeado hacia arriba al múltiplo elegido (opcional)
 - Cortes redondeados a 0,1 cm; precios a pesos enteros
+
+## Pruebas automáticas
+
+```bash
+npm test
+```
+No hay que instalar nada (usa el `node:test` que trae Node 18 o más nuevo). Cubren las cuentas, los formatos, los casos con datos vacíos y que la lista de archivos del service worker esté completa. Si cambiás una fórmula, agregá o ajustá un test.
 
 ## Probar en la compu
 
@@ -49,20 +61,25 @@ El dibujo tiene que quedar dentro del 80 % central y el fondo cubrir todo el cua
 
 ## Publicar en GitHub Pages
 
-1. Creá un repositorio en GitHub (por ejemplo `cotizador-roller`).
-2. Subí todos los archivos a la raíz del repo (con "Add file → Upload files" o con git).
-3. En el repo: **Settings → Pages → Build and deployment → Source: Deploy from a branch**, rama `main`, carpeta `/ (root)` → **Save**.
-4. En uno o dos minutos queda en `https://TU-USUARIO.github.io/cotizador-roller/`.
-5. Abrilo desde el celular y tocá **Instalar** (en iPhone: Safari → Compartir → Agregar a inicio).
+La publicación la hace GitHub Actions (`.github/workflows/publicar.yml`) cada vez que se sube algo a `main`:
+
+1. Corre `npm test`. **Si alguna prueba falla, no se publica nada.**
+2. Pone una versión de caché nueva en `sw.js` (fecha + commit), así los teléfonos ven el aviso de actualización.
+3. Publica solo los archivos de la app.
+
+Configuración del repo (una sola vez): **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+
+La app queda en `https://TU-USUARIO.github.io/NOMBRE-DEL-REPO/`. En el celular: **Instalar** (en iPhone: Safari → Compartir → Agregar a inicio).
 
 ## Subir una versión nueva
 
-1. Hacé los cambios en los archivos.
-2. En `sw.js` subí el número de versión: `const CACHE = 'roller-v1'` → `'roller-v2'` (la próxima, `v3`, etc.). **Si no lo cambiás, los teléfonos siguen usando los archivos viejos guardados.**
-3. Subí los archivos al repo (commit + push). Esperá a que GitHub Pages termine de publicar.
-4. Al abrir la app aparece **"Hay una actualización disponible"** → tocá **Recargar**. La versión instalada se ve al final de Configuración.
+1. Hacé los cambios y corré `npm test`.
+2. `git add -A && git commit -m "..." && git push`
+3. En **Actions** del repo se ve la publicación (tarda 1–2 minutos).
+4. Al abrir la app aparece **"Hay una actualización disponible"** → **Recargar**. La versión instalada se ve al final de Configuración.
 
-Si agregás un archivo nuevo a la app, sumalo también a la lista `ASSETS` de `sw.js`.
+**No hace falta tocar el número de versión**: en el repo `sw.js` dice `roller-dev` y el workflow lo reemplaza al publicar.
+Si agregás un archivo nuevo a la app, sumalo a `ASSETS` en `sw.js` y a la línea `cp` del workflow (hay un test que avisa si quedan distintos).
 
 ## Backup
 

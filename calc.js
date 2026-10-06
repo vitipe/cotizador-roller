@@ -3,11 +3,14 @@
    ---------------------------------------------------------------------
    Este archivo NO toca la interfaz (no usa el DOM). Acá están:
      · la configuración de ejemplo (valores iniciales),
+     · las medidas finales (1 o 3 puntos),
      · las fórmulas de corte y de costo,
+     · el plan de corte de tubos en barras,
      · los formatos de números, medidas y pesos,
      · el armado del texto del presupuesto y de la hoja de corte.
    Si hay que cambiar cómo se calcula algo, se cambia acá.
    Funciona en el navegador (window.Calc) y en Node (module.exports).
+   Las pruebas automáticas están en tests/calc.test.js.
    ===================================================================== */
 (function (global) {
   'use strict';
@@ -18,18 +21,23 @@
      "Configuración". Precios en pesos, medidas en cm.
      ------------------------------------------------------------------ */
   const DEFAULT_CONFIG = {
-    version: 1,
+    version: 2,
+    // rotable: la tela se puede cortar girada (el alto a lo ancho del rollo).
     telas: [
-      { id: 'screen5', nombre: 'Screen 5%', precioM2: 18000, anchoRollo: 250 },
-      { id: 'blackout', nombre: 'Blackout', precioM2: 15000, anchoRollo: 300 },
-      { id: 'sunscreen', nombre: 'Sunscreen', precioM2: 21000, anchoRollo: 250 }
+      { id: 'screen5', nombre: 'Screen 5%', precioM2: 18000, anchoRollo: 250, rotable: false },
+      { id: 'blackout', nombre: 'Blackout', precioM2: 15000, anchoRollo: 300, rotable: true },
+      { id: 'sunscreen', nombre: 'Sunscreen', precioM2: 21000, anchoRollo: 250, rotable: false }
     ],
+    telaModo: 'facturable',  // cómo se cobra la tela (ver MODOS_TELA)
+    desperdicioTela: 0,      // % extra de tela por desperdicio
     // Rangos por ancho de cortina. hastaAncho = null significa "sin límite".
     mecanismos: [
       { id: 'm38', hastaAncho: 150, diametro: 38, costoMecanismo: 9000, costoTuboMetro: 6000 },
       { id: 'm45', hastaAncho: 250, diametro: 45, costoMecanismo: 12000, costoTuboMetro: 8500 },
       { id: 'm50', hastaAncho: null, diametro: 50, costoMecanismo: 16000, costoTuboMetro: 11000 }
     ],
+    tuboModo: 'metro',       // cómo se cobra el tubo (ver MODOS_TUBO)
+    largoBarra: 580,         // cm de cada barra de tubo
     contrapesoMetro: 4500,   // $ por metro de contrapeso
     cadenaMetro: 1200,       // $ por metro de cadena
     cadenaFactor: 0.7,       // largo de cadena = alto × factor
@@ -42,6 +50,8 @@
     manoObra: 10000,         // $ fijo por cortina
     margen: 60,              // % de recargo sobre el costo
     minimoM2: 1,             // m² mínimos que se cobran por cortina
+    redondeo: 0,             // redondear el precio hacia arriba a este múltiplo (0 = no)
+    tresPuntos: false,       // cortinas nuevas con medición en 3 puntos
     // Costos extra definidos por el usuario.
     // tipo: 'fijo' (por cortina) | 'm2' (por m² facturable)
     //       'metroAncho' (por metro de ancho) | 'metroAlto' (por metro de alto)
@@ -63,7 +73,23 @@
     metroAlto: 'Por metro de alto'
   };
 
-  const ESTADOS = ['Presupuestado', 'Confirmado', 'En producción', 'Instalado'];
+  const MODOS_TELA = {
+    facturable: 'Por m² facturables (ancho × alto)',
+    corte: 'Por tela cortada (con descuento y agregado)',
+    rollo: 'Por ancho de rollo completo (el sobrante se pierde)'
+  };
+
+  const MODOS_TUBO = {
+    metro: 'Por metro usado',
+    barra: 'Por barra entera (se reparte entre las cortinas del pedido)'
+  };
+
+  const REDONDEOS = [0, 100, 500, 1000, 5000];
+
+  // "Medición" = medido en obra, todavía sin cotizar.
+  const ESTADOS = ['Medición', 'Presupuestado', 'Confirmado', 'En producción', 'Instalado'];
+  const ESTADO_MEDICION = 'Medición';
+  const ESTADO_INICIAL = 'Presupuestado';
 
   /* ------------------------------------------------------------------
      2. Números y formatos
@@ -97,6 +123,10 @@
     return Number.isNaN(n) ? (def === undefined ? 0 : def) : n;
   }
 
+  function vacio(v) {
+    return String(v === null || v === undefined ? '' : v).trim() === '';
+  }
+
   /** Redondea a 0,1 (para cortes en cm). */
   function round1(x) {
     return Math.round(x * 10) / 10;
@@ -105,6 +135,11 @@
   /** Redondea a pesos enteros. */
   function roundPesos(x) {
     return Math.round(x);
+  }
+
+  /** Redondea un precio hacia arriba al múltiplo indicado (0 = sin redondeo). */
+  function redondearPrecio(precio, paso) {
+    return paso > 0 ? Math.ceil(precio / paso) * paso : precio;
   }
 
   function miles(entero) {
@@ -148,9 +183,17 @@
     return p(d.getDate()) + '/' + p(d.getMonth() + 1) + '/' + d.getFullYear();
   }
 
+  function plural(n, uno, varios) {
+    return n + ' ' + (n === 1 ? uno : varios);
+  }
+
   /** Id corto y único para telas, cortinas, pedidos, etc. */
   function uid() {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  }
+
+  function clonar(obj) {
+    return JSON.parse(JSON.stringify(obj));
   }
 
   /* ------------------------------------------------------------------
@@ -158,10 +201,6 @@
      La interfaz guarda lo que escribe el usuario (texto). Antes de
      calcular se pasa todo a números con normalizarConfig().
      ------------------------------------------------------------------ */
-
-  function clonar(obj) {
-    return JSON.parse(JSON.stringify(obj));
-  }
 
   /**
    * Devuelve una copia de la config con todos los campos numéricos
@@ -198,7 +237,8 @@
         id: (t && t.id) || uid(),
         nombre: nombre || 'Tela ' + (i + 1),
         precioM2: campo(t && t.precioM2, 'telas.' + i + '.precioM2', etq + ' › precio por m²'),
-        anchoRollo: campo(t && t.anchoRollo, 'telas.' + i + '.anchoRollo', etq + ' › ancho de rollo', { mayorACero: true })
+        anchoRollo: campo(t && t.anchoRollo, 'telas.' + i + '.anchoRollo', etq + ' › ancho de rollo', { mayorACero: true }),
+        rotable: !!(t && t.rotable)
       };
     });
     if (!telas.length) errores.push({ ruta: 'telas', msg: 'Tiene que haber al menos una tela' });
@@ -228,12 +268,17 @@
       };
     });
 
+    const redondeo = num(c.redondeo);
     const d = c.descuentos || {};
     const n = c.negocio || {};
     const cfg = {
       version: DEFAULT_CONFIG.version,
       telas,
+      telaModo: MODOS_TELA[c.telaModo] ? c.telaModo : 'facturable',
+      desperdicioTela: campo(c.desperdicioTela, 'desperdicioTela', 'Desperdicio de tela'),
       mecanismos,
+      tuboModo: MODOS_TUBO[c.tuboModo] ? c.tuboModo : 'metro',
+      largoBarra: campo(c.largoBarra, 'largoBarra', 'Largo de barra de tubo', { mayorACero: true }),
       contrapesoMetro: campo(c.contrapesoMetro, 'contrapesoMetro', 'Contrapeso › costo por metro'),
       cadenaMetro: campo(c.cadenaMetro, 'cadenaMetro', 'Cadena › costo por metro'),
       cadenaFactor: campo(c.cadenaFactor, 'cadenaFactor', 'Cadena › factor de largo'),
@@ -246,6 +291,8 @@
       manoObra: campo(c.manoObra, 'manoObra', 'Mano de obra'),
       margen: campo(c.margen, 'margen', 'Margen de ganancia'),
       minimoM2: campo(c.minimoM2, 'minimoM2', 'Mínimo facturable'),
+      redondeo: REDONDEOS.includes(redondeo) ? redondeo : 0,
+      tresPuntos: !!c.tresPuntos,
       adicionales,
       negocio: {
         nombre: String(n.nombre || '').trim(),
@@ -257,13 +304,55 @@
   }
 
   /* ------------------------------------------------------------------
-     4. Cálculo por cortina
+     4. Medidas finales (1 o 3 puntos)
+     Con 3 puntos se mide el ancho arriba/medio/abajo y el alto
+     izquierda/centro/derecha:
+       · dentro del vano → la medida MÁS CHICA (para que entre),
+       · fuera del vano  → la medida MÁS GRANDE (para que tape).
+     ------------------------------------------------------------------ */
+
+  function resolverMedida(valores, criterio) {
+    const llenos = (valores || []).filter((v) => !vacio(v));
+    if (!llenos.length) return { valor: NaN, estado: 'vacio' };
+    const nums = llenos.map(num);
+    if (nums.some((x) => Number.isNaN(x))) return { valor: NaN, estado: 'invalido' };
+    const valor = criterio === 'max' ? Math.max.apply(null, nums) : Math.min.apply(null, nums);
+    return { valor, estado: valor > 0 ? 'ok' : 'noPositivo', puntos: nums.length };
+  }
+
+  /**
+   * Medidas finales de una cortina.
+   * @returns { ok, ancho, alto, tresPuntos, criterio: 'min'|'max', errores[] }
+   */
+  function medidasFinales(cortina) {
+    const c = cortina || {};
+    const tres = !!c.tresPuntos;
+    const criterio = c.colocacion === 'fuera' ? 'max' : 'min';
+    const a = resolverMedida(tres ? c.anchos : [c.ancho], criterio);
+    const h = resolverMedida(tres ? c.altos : [c.alto], criterio);
+    const errores = [];
+    [[a, 'ancho'], [h, 'alto']].forEach(([m, nombre]) => {
+      if (m.estado === 'vacio') errores.push('Falta el ' + nombre);
+      else if (m.estado === 'invalido') errores.push((tres ? 'Alguna medida del ' : 'El ') + nombre + ' no es un número válido');
+      else if (m.estado === 'noPositivo') errores.push('El ' + nombre + ' tiene que ser mayor a 0');
+    });
+    return { ok: !errores.length, ancho: a.valor, alto: h.valor, tresPuntos: tres, criterio, errores };
+  }
+
+  /** Texto que explica qué medida se tomó con 3 puntos. */
+  function txtCriterio(criterio) {
+    return criterio === 'max'
+      ? 'la más grande de cada medida (fuera del vano)'
+      : 'la más chica de cada medida (dentro del vano)';
+  }
+
+  /* ------------------------------------------------------------------
+     5. Cálculo por cortina
      ------------------------------------------------------------------ */
 
   /**
    * Elige el mecanismo según el ancho: el primer rango (de menor a mayor)
-   * cuyo "hasta" sea >= ancho. Si ninguno alcanza, usa el rango sin
-   * límite; si no hay, el más grande (y avisa).
+   * cuyo "hasta" sea >= ancho. Si ninguno alcanza, usa el más grande y avisa.
    */
   function elegirMecanismo(ancho, mecanismos) {
     const lista = (mecanismos || []).slice().sort((a, b) => {
@@ -289,32 +378,41 @@
     }
   }
 
+  /** Suma los costos y calcula el precio de venta (margen + redondeo). */
+  function totalizar(r, cfg) {
+    const k = r.costos;
+    r.costoTotal =
+      k.tela + k.tubo + k.mecanismo + k.contrapeso + k.cadena + k.manoObra +
+      k.adicionales.reduce((s, a) => s + a.monto, 0);
+    // Margen = recargo sobre el costo.
+    r.precioSinRedondeo = roundPesos(r.costoTotal * (1 + cfg.margen / 100));
+    r.precio = redondearPrecio(r.precioSinRedondeo, cfg.redondeo);
+    return r;
+  }
+
   /**
-   * Calcula una cortina.
-   * @param {object} cortina  { ambiente, ancho, alto, telaId, comando, colocacion }
+   * Calcula una cortina sola. El tubo se calcula por metro; si la config
+   * cobra por barra, calcularPedido() lo recalcula con todo el pedido.
+   * @param {object} cortina  { ambiente, ancho, alto | tresPuntos, anchos[], altos[], telaId, comando, colocacion, nota }
    * @param {object} cfg      config YA normalizada (ver normalizarConfig)
-   * @returns {object} { ok, errores[], avisos[], medidas, cortes, costos, costoTotal, precio, ... }
+   * @returns {object} { ok, errores[], avisos[], notas[], medidas, cortes, costos, costoTotal, precio, ... }
    *  ok = false si faltan datos: en ese caso no suma al total del pedido.
    */
   function calcularCortina(cortina, cfg) {
     const c = cortina || {};
-    const errores = [];
+    const medidas = medidasFinales(c);
+    const errores = medidas.errores.slice();
     const avisos = [];
-
-    const ancho = num(c.ancho);
-    const alto = num(c.alto);
-    const vacio = (v) => String(v === null || v === undefined ? '' : v).trim() === '';
-    if (Number.isNaN(ancho)) errores.push(vacio(c.ancho) ? 'Falta el ancho' : 'El ancho no es un número válido');
-    else if (ancho <= 0) errores.push('El ancho tiene que ser mayor a 0');
-    if (Number.isNaN(alto)) errores.push(vacio(c.alto) ? 'Falta el alto' : 'El alto no es un número válido');
-    else if (alto <= 0) errores.push('El alto tiene que ser mayor a 0');
+    const notas = [];
 
     const tela = (cfg.telas || []).find((t) => t.id === c.telaId) || null;
     if (!tela) errores.push('Elegí una tela');
 
-    if (errores.length) {
-      return { ok: false, errores, avisos, tela, mecanismo: null };
-    }
+    const base = { ok: false, errores, avisos, notas, tela, mecanismo: null, medidas };
+    if (errores.length) return base;
+
+    const ancho = medidas.ancho;
+    const alto = medidas.alto;
 
     // --- Superficie ---
     const m2Reales = (ancho * alto) / 10000;
@@ -323,8 +421,10 @@
     // --- Mecanismo / tubo según el ancho ---
     const { mec, fueraDeRango } = elegirMecanismo(ancho, cfg.mecanismos);
     if (!mec) {
-      return { ok: false, errores: ['No hay mecanismos cargados en Configuración'], avisos, tela, mecanismo: null };
+      errores.push('No hay mecanismos cargados en Configuración');
+      return base;
     }
+    base.mecanismo = mec;
     if (fueraDeRango) {
       avisos.push('El ancho supera el rango más grande de mecanismos (hasta ' + fmtCm(mec.hastaAncho) + ')');
     }
@@ -338,19 +438,35 @@
       cadena: round1(alto * cfg.cadenaFactor)
     };
     if (cortes.telaAncho <= 0 || cortes.tubo <= 0 || cortes.contrapeso <= 0) {
-      return {
-        ok: false,
-        errores: ['El ancho es muy chico para los descuentos de fabricación'],
-        avisos, tela, mecanismo: mec
-      };
+      errores.push('El ancho es muy chico para los descuentos de fabricación');
+      return base;
     }
 
+    // --- Orientación de la tela ---
+    // Si el ancho no entra en el rollo pero el largo sí, y la tela se puede
+    // girar, se corta girada: el largo va a lo ancho del rollo.
+    let rotada = false;
     if (cortes.telaAncho > tela.anchoRollo) {
-      avisos.push(
-        'El ancho de corte (' + fmtCm(cortes.telaAncho) + ') supera el ancho de rollo de ' +
-        tela.nombre + ' (' + fmtCm(tela.anchoRollo) + ')'
-      );
+      if (tela.rotable && cortes.telaLargo <= tela.anchoRollo) {
+        rotada = true;
+        notas.push('La tela se corta girada: el largo (' + fmtCm(cortes.telaLargo) +
+          ') va a lo ancho del rollo (' + fmtCm(tela.anchoRollo) + ').');
+      } else {
+        avisos.push('El ancho de corte (' + fmtCm(cortes.telaAncho) + ') supera el ancho de rollo de ' +
+          tela.nombre + ' (' + fmtCm(tela.anchoRollo) + ')');
+        if (cortes.telaLargo <= tela.anchoRollo) {
+          avisos.push('Se podría cortar girada: si ' + tela.nombre + ' lo permite, activalo en Configuración → Telas.');
+        }
+      }
     }
+    // Cuántos cm de rollo se consumen a lo largo.
+    const consumoRollo = rotada ? cortes.telaAncho : cortes.telaLargo;
+
+    // --- m² de tela que se cobran (según Configuración) ---
+    const m2Corte = (cortes.telaAncho * cortes.telaLargo) / 10000;
+    const m2Rollo = (tela.anchoRollo * consumoRollo) / 10000;
+    const m2Base = cfg.telaModo === 'corte' ? m2Corte : cfg.telaModo === 'rollo' ? m2Rollo : m2Reales;
+    const m2Tela = Math.max(m2Base, cfg.minimoM2) * (1 + cfg.desperdicioTela / 100);
 
     // --- Costos (cada ítem redondeado a pesos enteros) ---
     const adicionales = (cfg.adicionales || [])
@@ -358,7 +474,7 @@
       .map((a) => ({ id: a.id, nombre: a.nombre, monto: roundPesos(montoAdicional(a, ancho, alto, m2Fact)) }));
 
     const costos = {
-      tela: roundPesos(m2Fact * tela.precioM2),
+      tela: roundPesos(m2Tela * tela.precioM2),
       tubo: roundPesos((cortes.tubo / 100) * mec.costoTuboMetro),
       mecanismo: roundPesos(mec.costoMecanismo),
       contrapeso: roundPesos((cortes.contrapeso / 100) * cfg.contrapesoMetro),
@@ -367,41 +483,130 @@
       adicionales
     };
 
-    const costoTotal =
-      costos.tela + costos.tubo + costos.mecanismo + costos.contrapeso +
-      costos.cadena + costos.manoObra +
-      adicionales.reduce((s, a) => s + a.monto, 0);
-
-    // Margen = recargo sobre el costo.
-    const precio = roundPesos(costoTotal * (1 + cfg.margen / 100));
-
-    return {
+    return totalizar({
       ok: true,
       errores,
       avisos,
+      notas,
+      medidas,
       ancho,
       alto,
       tela,
       mecanismo: mec,
       m2Reales,
       m2Fact,
+      m2Corte,
+      m2Rollo,
+      m2Tela,
+      rotada,
+      consumoRollo,
       cortes,
       costos,
-      costoTotal,
-      precio
-    };
+      tuboInfo: { modo: 'metro' }
+    }, cfg);
   }
 
   /* ------------------------------------------------------------------
-     5. Cálculo del pedido completo
+     6. Plan de corte de tubos en barras
+     Agrupa los cortes de tubo por diámetro y precio y los acomoda en
+     barras (primero los más largos, cada uno en la primera barra donde
+     entre). Así se aprovechan los sobrantes entre cortinas del pedido.
      ------------------------------------------------------------------ */
+
+  function planCorteTubos(items, largoBarra) {
+    const grupos = {};
+    items.forEach((it) => {
+      if (!it.r.ok) return;
+      const m = it.r.mecanismo;
+      const clave = m.diametro + '|' + m.costoTuboMetro;
+      if (!grupos[clave]) grupos[clave] = { diametro: m.diametro, precioMetro: m.costoTuboMetro, piezas: [] };
+      grupos[clave].piezas.push({ largo: it.r.cortes.tubo, item: it, larga: !(largoBarra > 0) || it.r.cortes.tubo > largoBarra });
+    });
+
+    return Object.keys(grupos).map((clave) => {
+      const g = grupos[clave];
+      const barras = [];
+      g.piezas
+        .filter((p) => !p.larga)
+        .sort((a, b) => b.largo - a.largo)
+        .forEach((p) => {
+          let barra = barras.find((b) => b.usado + p.largo <= largoBarra + 1e-9);
+          if (!barra) {
+            barra = { cortes: [], usado: 0 };
+            barras.push(barra);
+          }
+          barra.cortes.push({ largo: p.largo, ambiente: p.item.nombre });
+          barra.usado = round1(barra.usado + p.largo);
+        });
+      barras.forEach((b) => { b.sobrante = round1(largoBarra - b.usado); });
+      const largas = g.piezas.filter((p) => p.larga);
+      return {
+        diametro: g.diametro,
+        precioMetro: g.precioMetro,
+        piezas: g.piezas,
+        barras,
+        cantidad: barras.length,
+        largas: largas.map((p) => ({ largo: p.largo, ambiente: p.item.nombre })),
+        metrosUsados: round1(g.piezas.reduce((s, p) => s + p.largo, 0))
+      };
+    }).sort((a, b) => a.diametro - b.diametro);
+  }
+
+  /**
+   * Cobra el tubo por barra entera: el costo de las barras de cada grupo
+   * se reparte entre las cortinas en proporción al largo de su tubo.
+   * Los tubos más largos que una barra se cobran por metro (pedido especial).
+   */
+  function aplicarCostoPorBarra(plan, largoBarra, cfg) {
+    plan.forEach((g) => {
+      const normales = g.piezas.filter((p) => !p.larga);
+      const totalLargo = normales.reduce((s, p) => s + p.largo, 0);
+      const costoBarras = roundPesos(g.cantidad * (largoBarra / 100) * g.precioMetro);
+      g.costoBarras = costoBarras;
+      let asignado = 0;
+      normales.forEach((p, i) => {
+        const parte = i === normales.length - 1
+          ? costoBarras - asignado
+          : roundPesos(costoBarras * p.largo / totalLargo);
+        asignado += parte;
+        const r = p.item.r;
+        r.costos.tubo = parte;
+        r.tuboInfo = { modo: 'barra', barras: g.cantidad, cortinas: normales.length, largoBarra };
+        totalizar(r, cfg);
+      });
+    });
+  }
+
+  /* ------------------------------------------------------------------
+     7. Cálculo del pedido completo
+     ------------------------------------------------------------------ */
+
+  function nombreAmbiente(cortina, i) {
+    const a = String((cortina && cortina.ambiente) || '').trim();
+    return a || 'Cortina ' + (i + 1);
+  }
 
   function calcularPedido(pedido, cfg) {
     const cortinas = (pedido && Array.isArray(pedido.cortinas)) ? pedido.cortinas : [];
-    const items = cortinas.map((cortina) => ({ cortina, r: calcularCortina(cortina, cfg) }));
+    const items = cortinas.map((cortina, i) => ({
+      cortina,
+      nombre: nombreAmbiente(cortina, i),
+      r: calcularCortina(cortina, cfg)
+    }));
+
+    const planTubos = planCorteTubos(items, cfg.largoBarra);
+    planTubos.forEach((g) => g.piezas.forEach((p) => {
+      if (p.larga && cfg.largoBarra > 0) {
+        p.item.r.avisos.push('El tubo (' + fmtCm(p.largo) + ') es más largo que la barra (' +
+          fmtCm(cfg.largoBarra) + '): hay que pedirlo especial.');
+      }
+    }));
+    if (cfg.tuboModo === 'barra') aplicarCostoPorBarra(planTubos, cfg.largoBarra, cfg);
+
     const completas = items.filter((it) => it.r.ok);
     return {
       items,
+      planTubos,
       completas: completas.length,
       incompletas: items.length - completas.length,
       costoTotal: completas.reduce((s, it) => s + it.r.costoTotal, 0),
@@ -410,13 +615,8 @@
   }
 
   /* ------------------------------------------------------------------
-     6. Salidas: presupuesto, hoja de corte, explicación de fórmulas
+     8. Salidas: presupuesto, hoja de corte, explicación de fórmulas
      ------------------------------------------------------------------ */
-
-  function nombreAmbiente(cortina, i) {
-    const a = String((cortina && cortina.ambiente) || '').trim();
-    return a || 'Cortina ' + (i + 1);
-  }
 
   function txtComando(v) {
     return v === 'izquierda' ? 'izquierda' : 'derecha';
@@ -443,11 +643,11 @@
     lineas.push('');
 
     let n = 0;
-    res.items.forEach((it, i) => {
+    res.items.forEach((it) => {
       if (!it.r.ok) return;
       n++;
       const r = it.r;
-      lineas.push('*' + n + '. ' + nombreAmbiente(it.cortina, i) + '*');
+      lineas.push('*' + n + '. ' + it.nombre + '*');
       lineas.push('Medidas: ' + fmtNum(r.ancho) + ' × ' + fmtNum(r.alto) + ' cm (ancho × alto)');
       lineas.push('Tela: ' + r.tela.nombre);
       lineas.push('Comando ' + txtComando(it.cortina.comando) + ' · ' + txtColocacion(it.cortina.colocacion));
@@ -469,26 +669,32 @@
     return lineas.join('\n').trim();
   }
 
-  /** Filas para la hoja de corte del taller (solo cortinas completas). */
-  function filasHojaCorte(pedido, cfg) {
-    const res = calcularPedido(pedido, cfg);
-    return res.items.map((it, i) => {
+  /** Filas para la hoja de corte del taller. */
+  function filasHojaCorte(pedido, cfg, resultado) {
+    const res = resultado || calcularPedido(pedido, cfg);
+    return res.items.map((it) => {
       const r = it.r;
       const base = {
-        ambiente: nombreAmbiente(it.cortina, i),
+        ambiente: it.nombre,
         comando: txtComando(it.cortina.comando),
         colocacion: txtColocacion(it.cortina.colocacion),
+        nota: String(it.cortina.nota || '').trim(),
         ok: r.ok,
         errores: r.errores,
-        avisos: r.avisos
+        avisos: r.avisos,
+        notas: r.notas || []
       };
       if (!r.ok) return base;
       return Object.assign(base, {
         ancho: r.ancho,
         alto: r.alto,
+        tresPuntos: r.medidas.tresPuntos,
+        criterio: r.medidas.criterio,
         tela: r.tela.nombre,
         telaAncho: r.cortes.telaAncho,
         telaLargo: r.cortes.telaLargo,
+        rotada: r.rotada,
+        consumoRollo: r.consumoRollo,
         tuboDiametro: r.mecanismo.diametro,
         tuboLargo: r.cortes.tubo,
         contrapeso: r.cortes.contrapeso,
@@ -498,24 +704,23 @@
   }
 
   /**
-   * Resumen de materiales para el taller: metros de tela por tipo,
-   * metros de tubo por diámetro, contrapeso y cadena totales.
+   * Resumen de materiales para el taller: metros de rollo por tela,
+   * tubos por diámetro (con barras), contrapeso y cadena totales.
    */
-  function resumenMateriales(pedido, cfg) {
-    const filas = filasHojaCorte(pedido, cfg).filter((f) => f.ok);
+  function resumenMateriales(pedido, cfg, resultado) {
+    const res = resultado || calcularPedido(pedido, cfg);
+    const filas = filasHojaCorte(pedido, cfg, res).filter((f) => f.ok);
     const telas = {};
-    const tubos = {};
     let contrapeso = 0;
     let cadena = 0;
     filas.forEach((f) => {
-      telas[f.tela] = (telas[f.tela] || 0) + f.telaLargo;
-      tubos[f.tuboDiametro] = (tubos[f.tuboDiametro] || 0) + f.tuboLargo;
+      telas[f.tela] = (telas[f.tela] || 0) + f.consumoRollo;
       contrapeso += f.contrapeso;
       cadena += f.cadena;
     });
     return {
       telas: Object.keys(telas).map((k) => ({ nombre: k, largo: round1(telas[k]) })),
-      tubos: Object.keys(tubos).map((k) => ({ diametro: Number(k), largo: round1(tubos[k]) })),
+      tubos: res.planTubos.map((g) => ({ diametro: g.diametro, largo: g.metrosUsados, barras: g.cantidad, especiales: g.largas.length })),
       contrapeso: round1(contrapeso),
       cadena: round1(cadena)
     };
@@ -524,84 +729,143 @@
   /**
    * Explica paso a paso cómo se calcula una cortina, con los valores
    * reemplazados. Lo usa el panel "Cómo se calcula" de Configuración.
-   * Devuelve [{ concepto, formula, resultado }].
+   * Devuelve { ok, errores, pasos: [{ concepto, formula, resultado }], avisos, notas }.
    */
   function explicarCortina(cortina, cfg) {
-    const r = calcularCortina(cortina, cfg);
+    const res = calcularPedido({ cortinas: [cortina] }, cfg);
+    const r = res.items[0].r;
     if (!r.ok) return { ok: false, errores: r.errores, pasos: [] };
     const d = cfg.descuentos;
     const N = (x) => fmtNum(x, 2);
-    const pasos = [
+    const pasos = [];
+
+    if (r.medidas.tresPuntos) {
+      pasos.push({ concepto: 'Medida final', formula: txtCriterio(r.medidas.criterio), resultado: fmtNum(r.ancho) + ' × ' + fmtNum(r.alto) + ' cm' });
+    }
+    pasos.push(
       { concepto: 'm² reales', formula: 'ancho × alto ÷ 10.000 = ' + N(r.ancho) + ' × ' + N(r.alto) + ' ÷ 10.000', resultado: fmtM2(r.m2Reales) },
       { concepto: 'm² facturables', formula: 'el mayor entre m² reales y el mínimo (' + N(cfg.minimoM2) + ' m²)', resultado: fmtM2(r.m2Fact) },
       { concepto: 'Tubo elegido', formula: 'según el ancho (' + fmtCm(r.ancho) + ')', resultado: 'Ø ' + fmtNum(r.mecanismo.diametro) + ' mm' },
       { concepto: 'Corte de tela (ancho)', formula: 'ancho − ' + N(d.telaAncho) + ' cm', resultado: fmtCm(r.cortes.telaAncho) },
-      { concepto: 'Corte de tela (largo)', formula: 'alto + ' + N(cfg.agregadoAlto) + ' cm', resultado: fmtCm(r.cortes.telaLargo) },
+      { concepto: 'Corte de tela (largo)', formula: 'alto + ' + N(cfg.agregadoAlto) + ' cm' + (r.rotada ? ' · se corta girada' : ''), resultado: fmtCm(r.cortes.telaLargo) },
       { concepto: 'Corte de tubo', formula: 'ancho − ' + N(d.tuboLargo) + ' cm', resultado: fmtCm(r.cortes.tubo) },
       { concepto: 'Corte de contrapeso', formula: 'ancho − ' + N(d.contrapesoLargo) + ' cm', resultado: fmtCm(r.cortes.contrapeso) },
-      { concepto: 'Largo de cadena', formula: 'alto × ' + N(cfg.cadenaFactor), resultado: fmtCm(r.cortes.cadena) },
-      { concepto: 'Costo tela', formula: N(r.m2Fact) + ' m² × ' + fmtPesos(r.tela.precioM2) + ' (' + r.tela.nombre + ')', resultado: fmtPesos(r.costos.tela) },
-      { concepto: 'Costo tubo', formula: N(r.cortes.tubo / 100) + ' m × ' + fmtPesos(r.mecanismo.costoTuboMetro) + ' por metro', resultado: fmtPesos(r.costos.tubo) },
+      { concepto: 'Largo de cadena', formula: 'alto × ' + N(cfg.cadenaFactor), resultado: fmtCm(r.cortes.cadena) }
+    );
+
+    // Tela según el modo de cobro.
+    let baseTela;
+    if (cfg.telaModo === 'corte') baseTela = 'tela cortada ' + N(r.cortes.telaAncho / 100) + ' × ' + N(r.cortes.telaLargo / 100) + ' m = ' + fmtM2(r.m2Corte);
+    else if (cfg.telaModo === 'rollo') baseTela = 'rollo de ' + N(r.tela.anchoRollo / 100) + ' m × ' + N(r.consumoRollo / 100) + ' m = ' + fmtM2(r.m2Rollo);
+    else baseTela = 'm² facturables';
+    pasos.push({
+      concepto: 'm² de tela cobrados',
+      formula: baseTela + ' (mínimo ' + N(cfg.minimoM2) + ' m²)' + (cfg.desperdicioTela ? ' + ' + N(cfg.desperdicioTela) + '% de desperdicio' : ''),
+      resultado: fmtM2(r.m2Tela)
+    });
+    pasos.push({ concepto: 'Costo tela', formula: N(r.m2Tela) + ' m² × ' + fmtPesos(r.tela.precioM2) + ' (' + r.tela.nombre + ')', resultado: fmtPesos(r.costos.tela) });
+
+    if (r.tuboInfo.modo === 'barra') {
+      pasos.push({
+        concepto: 'Costo tubo',
+        formula: plural(r.tuboInfo.barras, 'barra', 'barras') + ' de ' + N(r.tuboInfo.largoBarra / 100) + ' m × ' +
+          fmtPesos(r.mecanismo.costoTuboMetro) + ' por metro (en un pedido con varias cortinas se reparte)',
+        resultado: fmtPesos(r.costos.tubo)
+      });
+    } else {
+      pasos.push({ concepto: 'Costo tubo', formula: N(r.cortes.tubo / 100) + ' m × ' + fmtPesos(r.mecanismo.costoTuboMetro) + ' por metro', resultado: fmtPesos(r.costos.tubo) });
+    }
+    pasos.push(
       { concepto: 'Costo mecanismo', formula: 'fijo del rango Ø ' + fmtNum(r.mecanismo.diametro) + ' mm', resultado: fmtPesos(r.costos.mecanismo) },
       { concepto: 'Costo contrapeso', formula: N(r.cortes.contrapeso / 100) + ' m × ' + fmtPesos(cfg.contrapesoMetro) + ' por metro', resultado: fmtPesos(r.costos.contrapeso) },
       { concepto: 'Costo cadena', formula: N(r.cortes.cadena / 100) + ' m × ' + fmtPesos(cfg.cadenaMetro) + ' por metro', resultado: fmtPesos(r.costos.cadena) },
       { concepto: 'Mano de obra', formula: 'fijo por cortina', resultado: fmtPesos(r.costos.manoObra) }
-    ];
+    );
     r.costos.adicionales.forEach((a) => {
       const def = cfg.adicionales.find((x) => x.id === a.id);
       pasos.push({ concepto: a.nombre, formula: TIPOS_ADICIONAL[def.tipo] + ' (' + fmtPesos(def.valor) + ')', resultado: fmtPesos(a.monto) });
     });
     pasos.push({ concepto: 'Costo total', formula: 'suma de todos los costos', resultado: fmtPesos(r.costoTotal) });
-    pasos.push({ concepto: 'Precio de venta', formula: 'costo × (1 + ' + N(cfg.margen) + '%)', resultado: fmtPesos(r.precio) });
-    return { ok: true, errores: [], pasos, avisos: r.avisos };
+    pasos.push({
+      concepto: 'Precio de venta',
+      formula: 'costo × (1 + ' + N(cfg.margen) + '%)' +
+        (cfg.redondeo ? ' = ' + fmtPesos(r.precioSinRedondeo) + ', redondeado hacia arriba a ' + fmtPesos(cfg.redondeo) : ''),
+      resultado: fmtPesos(r.precio)
+    });
+    return { ok: true, errores: [], pasos, avisos: r.avisos, notas: r.notas };
   }
 
   /* ------------------------------------------------------------------
-     7. Modelos vacíos
+     9. Modelos vacíos
      ------------------------------------------------------------------ */
 
-  function nuevaCortina(cfg) {
-    const primera = cfg && cfg.telas && cfg.telas[0];
+  /**
+   * Cortina nueva. opciones.telaId: tela preferida (si existe en la config).
+   */
+  function nuevaCortina(cfg, opciones) {
+    const o = opciones || {};
+    const telas = (cfg && cfg.telas) || [];
+    const preferida = telas.find((t) => t.id === o.telaId) || telas[0];
     return {
       id: uid(),
       ambiente: '',
+      tresPuntos: !!(cfg && cfg.tresPuntos),
       ancho: '',
       alto: '',
-      telaId: primera ? primera.id : '',
+      anchos: ['', '', ''],
+      altos: ['', '', ''],
+      telaId: preferida ? preferida.id : '',
       comando: 'derecha',
-      colocacion: 'dentro'
+      colocacion: 'dentro',
+      nota: ''
     };
   }
 
-  function nuevoPedido(cfg) {
+  /**
+   * Pedido nuevo. opciones.modo: 'cotizar' | 'medicion'.
+   */
+  function nuevoPedido(cfg, opciones) {
+    const o = opciones || {};
     return {
       id: null, // se asigna al guardar
       fecha: new Date().toISOString(),
-      estado: ESTADOS[0],
+      modo: o.modo === 'medicion' ? 'medicion' : 'cotizar',
+      estado: o.modo === 'medicion' ? ESTADO_MEDICION : ESTADO_INICIAL,
       sena: '',
       cliente: { nombre: '', telefono: '', direccion: '' },
-      cortinas: [nuevaCortina(cfg)]
+      cortinas: [nuevaCortina(cfg, o)]
     };
   }
 
   const Calc = {
     DEFAULT_CONFIG,
     TIPOS_ADICIONAL,
+    MODOS_TELA,
+    MODOS_TUBO,
+    REDONDEOS,
     ESTADOS,
+    ESTADO_MEDICION,
+    ESTADO_INICIAL,
     num,
     numOr,
+    vacio,
     round1,
     roundPesos,
+    redondearPrecio,
     fmtNum,
     fmtPesos,
     fmtCm,
     fmtM2,
     fmtFecha,
+    plural,
     uid,
     clonar,
     normalizarConfig,
+    medidasFinales,
+    txtCriterio,
     elegirMecanismo,
     calcularCortina,
+    planCorteTubos,
     calcularPedido,
     textoPresupuesto,
     filasHojaCorte,

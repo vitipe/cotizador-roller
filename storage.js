@@ -13,7 +13,8 @@
   const KEYS = {
     config: 'roller.config',
     pedidos: 'roller.pedidos',
-    borrador: 'roller.borrador'
+    borrador: 'roller.borrador',
+    preferencias: 'roller.preferencias'
   };
 
   const memoria = {};
@@ -87,6 +88,19 @@
     return escribir(KEYS.borrador, pedido);
   }
 
+  /* ---------------- Preferencias (ej: última tela elegida) ---------------- */
+
+  function cargarPreferencias() {
+    const p = leer(KEYS.preferencias, {});
+    return esObjeto(p) ? p : {};
+  }
+
+  function guardarPreferencia(clave, valor) {
+    const p = cargarPreferencias();
+    p[clave] = valor;
+    return escribir(KEYS.preferencias, p);
+  }
+
   /* ---------------- Backup ---------------- */
 
   /** Arma el objeto de backup con toda la información. */
@@ -154,6 +168,8 @@
     guardarPedidos,
     cargarBorrador,
     guardarBorrador,
+    cargarPreferencias,
+    guardarPreferencia,
     exportarTodo,
     validarBackup,
     aplicarBackup

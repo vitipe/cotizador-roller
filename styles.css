@@ -207,6 +207,22 @@ input:focus, select:focus { outline: none; border-color: var(--primario); box-sh
 .segmentado input:checked + span { background: var(--primario); color: #fff; }
 .segmentado input:focus-visible + span { outline: 3px solid var(--primario-suave); outline-offset: -3px; }
 
+/* Modo del pedido: cotizar / medir en obra */
+.selector-modo { margin-bottom: 14px; }
+.selector-modo span { min-height: 52px; font-size: 1rem; }
+body.modo-medicion .solo-cotizar { display: none !important; }
+body:not(.modo-medicion) .solo-medir { display: none !important; }
+
+/* Medición en 3 puntos */
+.mini { display: block; }
+.mini > small { display: block; margin-bottom: 2px; font-size: 0.82rem; }
+.fila-3 .con-unidad input { padding-right: 34px; }
+.fila-3 .con-unidad::after { right: 9px; font-size: 0.8rem; }
+.grupo-medida { margin-bottom: 12px; }
+.grupo-medida > span { display: block; font-weight: 600; font-size: 0.95rem; margin-bottom: 4px; }
+.medida-final { margin: -4px 0 12px; font-size: 0.92rem; color: var(--texto-suave); }
+.medida-final b { color: var(--texto); }
+
 /* ---------- Botones ---------- */
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
@@ -252,6 +268,7 @@ input:focus, select:focus { outline: none; border-color: var(--primario); box-sh
 .mensaje { border-radius: 10px; padding: 10px 12px; margin: 8px 0; font-size: 0.95rem; }
 .mensaje-aviso { background: var(--aviso-suave); color: var(--aviso); }
 .mensaje-error { background: var(--peligro-suave); color: var(--peligro); }
+.mensaje-info { background: var(--primario-suave); color: var(--texto); }
 .mensaje ul { margin: 0; padding-left: 18px; }
 
 details.desglose { margin-top: 6px; }
@@ -285,7 +302,7 @@ details.desglose[open] summary::before { transform: rotate(90deg); }
 .barra-total-label { font-weight: 700; }
 .barra-total-detalle { color: var(--texto-suave); font-size: 0.85rem; }
 .barra-total-monto { font-size: 1.6rem; font-weight: 800; color: var(--primario); font-variant-numeric: tabular-nums; }
-.barra-acciones { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.barra-acciones { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px; }
 .barra-acciones .btn { flex-direction: column; gap: 2px; padding: 6px 4px; font-size: 0.85rem; min-height: 56px; }
 
 /* ---------- Pedidos ---------- */
@@ -307,10 +324,11 @@ details.desglose[open] summary::before { transform: rotate(90deg); }
 .pedido-acciones { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
 
 .estado { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 0.8rem; font-weight: 700; }
-.estado-0 { background: #e7ecee; color: #3d4f56; }
-.estado-1 { background: #dcefff; color: #0b4a7d; }
-.estado-2 { background: #fff0cc; color: #6d4b00; }
-.estado-3 { background: #d9f2e4; color: #1e6a43; }
+.estado-0 { background: #efe3fb; color: #5b2a86; } /* Medición */
+.estado-1 { background: #e7ecee; color: #3d4f56; } /* Presupuestado */
+.estado-2 { background: #dcefff; color: #0b4a7d; } /* Confirmado */
+.estado-3 { background: #fff0cc; color: #6d4b00; } /* En producción */
+.estado-4 { background: #d9f2e4; color: #1e6a43; } /* Instalado */
 
 .vacio { text-align: center; color: var(--texto-suave); padding: 32px 16px; }
 
@@ -416,7 +434,12 @@ details.desglose[open] summary::before { transform: rotate(90deg); }
 .tabla-corte .alerta { color: var(--peligro); font-weight: 700; font-size: 0.82rem; display: block; margin-top: 4px; }
 .hoja-resumen { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
 .hoja-resumen .card { margin: 0; box-shadow: none; }
-.hoja-resumen ul { margin: 6px 0 0; padding-left: 18px; }
+.hoja-resumen ul, .hoja-resumen ol { margin: 6px 0 0; padding-left: 18px; }
+.hoja-plan { margin-bottom: 16px; }
+.hoja-plan .card { box-shadow: none; }
+.hoja-plan li { margin-bottom: 4px; font-variant-numeric: tabular-nums; }
+.tabla-corte .nota { display: block; font-style: italic; font-size: 0.82rem; margin-top: 4px; }
+.tabla-corte .girada { display: inline-block; margin-top: 4px; padding: 1px 6px; border: 1px solid currentColor; border-radius: 6px; font-size: 0.75rem; font-weight: 800; }
 
 /* ---------- Pantallas más grandes ---------- */
 @media (min-width: 640px) {
@@ -443,5 +466,5 @@ details.desglose[open] summary::before { transform: rotate(90deg); }
   .tabla-corte { min-width: 0; font-size: 10pt; }
   .tabla-corte th { background: #eee !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .tabla-corte tr { break-inside: avoid; }
-  .hoja-resumen .card { border: 1px solid #999; break-inside: avoid; }
+  .hoja-resumen .card, .hoja-plan .card { border: 1px solid #999; break-inside: avoid; background: #fff; }
 }

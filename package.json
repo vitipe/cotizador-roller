@@ -1,0 +1,9 @@
+{
+  "name": "cotizador-roller",
+  "private": true,
+  "description": "PWA para cotizar cortinas roller y generar la hoja de corte. Sin dependencias.",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "serve": "python3 -m http.server 8080"
+  }
+}

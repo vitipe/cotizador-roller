@@ -1,0 +1,55 @@
+# Publica la app en GitHub Pages cada vez que se sube algo a main.
+#  1. Corre las pruebas automáticas (si alguna falla, NO se publica).
+#  2. Pone una versión nueva de caché en sw.js (fecha + commit), así los
+#     teléfonos ven el aviso "Hay una actualización disponible".
+#  3. Publica solo los archivos de la app (sin tests, README, etc.).
+name: Publicar en GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'README.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Pruebas automáticas
+        run: npm test
+
+      - name: Armar el sitio con versión de caché nueva
+        run: |
+          SITIO="$RUNNER_TEMP/sitio"
+          mkdir -p "$SITIO"
+          cp index.html styles.css calc.js storage.js app.js sw.js manifest.json icon.svg icon-192.png icon-512.png "$SITIO/"
+          VERSION="roller-$(date -u +%Y%m%d-%H%M)-${GITHUB_SHA::7}"
+          sed -i "s/^const CACHE = .*/const CACHE = '${VERSION}';/" "$SITIO/sw.js"
+          grep -q "const CACHE = '${VERSION}'" "$SITIO/sw.js"
+          echo "Versión publicada: ${VERSION}"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ runner.temp }}/sitio
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
