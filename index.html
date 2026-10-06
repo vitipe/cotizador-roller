@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="es-AR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Cotizador Roller</title>
+  <meta name="description" content="Cotizador y hoja de corte para cortinas roller.">
+  <meta name="theme-color" content="#0f5c6e">
+  <meta name="color-scheme" content="light dark">
+  <!-- PWA -->
+  <link rel="manifest" href="./manifest.json">
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <link rel="icon" href="./icon-192.png" type="image/png" sizes="192x192">
+  <link rel="apple-touch-icon" href="./icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Roller">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+
+  <!-- Aviso de versión nueva (lo muestra app.js) -->
+  <div id="aviso-update" class="aviso-update no-print" role="status" hidden>
+    <span>Hay una actualización disponible</span>
+    <button type="button" class="btn btn-claro" id="btn-recargar">Recargar</button>
+  </div>
+
+  <header class="topbar no-print">
+    <img src="./icon.svg" alt="" class="topbar-logo" width="32" height="32">
+    <h1 class="topbar-titulo">Cotizador Roller</h1>
+    <button type="button" class="btn btn-instalar" id="btn-instalar" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0-5-5m5 5 5-5M5 21h14"/></svg>
+      Instalar
+    </button>
+  </header>
+
+  <main id="app" class="no-print">
+
+    <!-- ============ NUEVO PEDIDO ============ -->
+    <section id="tab-pedido" class="tab" data-tab="pedido" aria-labelledby="t-pedido">
+      <div class="encabezado-tab">
+        <h2 id="t-pedido">Nuevo pedido</h2>
+        <button type="button" class="btn btn-secundario btn-chico" id="btn-nuevo-pedido">+ Empezar otro</button>
+      </div>
+      <p class="info-edicion" id="info-edicion" hidden></p>
+
+      <div class="card">
+        <h3 class="card-titulo">Cliente</h3>
+        <label class="campo">
+          <span>Nombre</span>
+          <input type="text" data-cliente="nombre" autocomplete="off" placeholder="Ej: María González">
+        </label>
+        <label class="campo">
+          <span>Teléfono</span>
+          <input type="tel" data-cliente="telefono" autocomplete="off" placeholder="Ej: 11 2345-6789">
+        </label>
+        <label class="campo">
+          <span>Dirección <small>(opcional)</small></span>
+          <input type="text" data-cliente="direccion" autocomplete="off" placeholder="Calle, número, localidad">
+        </label>
+      </div>
+
+      <div id="lista-cortinas"></div>
+
+      <button type="button" class="btn btn-secundario btn-bloque" id="btn-agregar-cortina">
+        + Agregar cortina
+      </button>
+
+      <!-- Barra de total y acciones -->
+      <div class="barra-total">
+        <div class="barra-total-fila">
+          <div>
+            <div class="barra-total-label">Total del pedido</div>
+            <div class="barra-total-detalle" id="total-detalle"></div>
+          </div>
+          <div class="barra-total-monto" id="total-monto">$ 0</div>
+        </div>
+        <div class="barra-acciones">
+          <button type="button" class="btn btn-primario" id="btn-guardar-pedido">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h11l3 3v15H5zM8 3v6h8V3M8 21v-7h8v7"/></svg>
+            Guardar
+          </button>
+          <button type="button" class="btn btn-whatsapp" id="btn-presupuesto">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l1.3-4A8 8 0 1 1 8 18.7z"/></svg>
+            Presupuesto
+          </button>
+          <button type="button" class="btn btn-secundario" id="btn-hoja-corte">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9V3h12v6M6 18H4v-8h16v8h-2M7 14h10v7H7z"/></svg>
+            Hoja de corte
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ PEDIDOS ============ -->
+    <section id="tab-pedidos" class="tab" data-tab="pedidos" aria-labelledby="t-pedidos" hidden>
+      <div class="encabezado-tab">
+        <h2 id="t-pedidos">Pedidos</h2>
+      </div>
+      <label class="campo campo-buscar">
+        <span class="sr-only">Buscar cliente</span>
+        <input type="search" id="buscar-pedido" placeholder="Buscar por cliente o teléfono" autocomplete="off">
+      </label>
+      <div class="chips" id="filtro-estados" role="group" aria-label="Filtrar por estado"></div>
+      <div id="lista-pedidos"></div>
+    </section>
+
+    <!-- ============ CONFIGURACIÓN ============ -->
+    <section id="tab-config" class="tab" data-tab="config" aria-labelledby="t-config" hidden>
+      <div class="encabezado-tab">
+        <h2 id="t-config">Configuración</h2>
+      </div>
+      <p class="ayuda">Acá se cargan los precios y medidas que usan las cuentas. Todos los valores son de ejemplo: cambialos por los tuyos y tocá <b>Guardar cambios</b>.</p>
+      <div id="form-config"></div>
+      <div class="barra-guardar" id="barra-guardar-config" hidden>
+        <span>Tenés cambios sin guardar</span>
+        <button type="button" class="btn btn-secundario btn-chico" id="btn-descartar-config">Descartar</button>
+        <button type="button" class="btn btn-primario btn-chico" id="btn-guardar-config">Guardar cambios</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- Navegación inferior -->
+  <nav class="tabbar no-print" aria-label="Secciones">
+    <a href="#pedido" class="tabbar-item" data-ir="pedido">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      <span>Nuevo pedido</span>
+    </a>
+    <a href="#pedidos" class="tabbar-item" data-ir="pedidos">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>
+      <span>Pedidos</span>
+    </a>
+    <a href="#config" class="tabbar-item" data-ir="config">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+      <span>Configuración</span>
+    </a>
+  </nav>
+
+  <!-- Hoja de corte (pantalla completa; es lo único que se imprime) -->
+  <div id="hoja-corte" class="hoja" hidden>
+    <div class="hoja-barra no-print">
+      <button type="button" class="btn btn-secundario" id="btn-cerrar-hoja">← Volver</button>
+      <button type="button" class="btn btn-primario" id="btn-imprimir">Imprimir</button>
+    </div>
+    <div id="hoja-contenido"></div>
+  </div>
+
+  <!-- Presupuesto para WhatsApp -->
+  <dialog id="dlg-presupuesto" class="dialogo no-print">
+    <div class="dialogo-cabecera">
+      <h2>Presupuesto para el cliente</h2>
+      <button type="button" class="btn-icono" data-cerrar aria-label="Cerrar">✕</button>
+    </div>
+    <p class="ayuda">Este texto no muestra costos ni margen. Copialo y pegalo en WhatsApp.</p>
+    <pre id="texto-presupuesto" class="texto-presupuesto"></pre>
+    <div class="dialogo-acciones">
+      <button type="button" class="btn btn-primario" id="btn-copiar">Copiar</button>
+      <a class="btn btn-whatsapp" id="btn-abrir-whatsapp" href="#" target="_blank" rel="noopener">Abrir WhatsApp</a>
+    </div>
+  </dialog>
+
+  <!-- Instrucciones para instalar en iPhone -->
+  <dialog id="dlg-ios" class="dialogo no-print">
+    <div class="dialogo-cabecera">
+      <h2>Instalar en iPhone</h2>
+      <button type="button" class="btn-icono" data-cerrar aria-label="Cerrar">✕</button>
+    </div>
+    <ol class="pasos">
+      <li>Abrí esta página en <b>Safari</b>.</li>
+      <li>Tocá el botón <b>Compartir</b> (el cuadradito con la flecha para arriba).</li>
+      <li>Elegí <b>Agregar a inicio</b> y después <b>Agregar</b>.</li>
+    </ol>
+    <p class="ayuda">Vas a ver el ícono “Roller” en la pantalla de inicio y funciona sin internet.</p>
+    <div class="dialogo-acciones">
+      <button type="button" class="btn btn-primario" data-cerrar>Entendido</button>
+    </div>
+  </dialog>
+
+  <div id="toast" class="toast no-print" role="status" aria-live="polite"></div>
+
+  <input type="file" id="input-importar" accept="application/json,.json" hidden>
+
+  <!-- Scripts: primero la lógica, después el guardado y por último la interfaz -->
+  <script src="./calc.js"></script>
+  <script src="./storage.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>

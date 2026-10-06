@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Cotizador Roller: cortina roller enrollada, estilo plano.
+       Fondo a sangre y dibujo dentro del 80% central (zona segura "maskable"). -->
+  <rect width="512" height="512" fill="#0f5c6e"/>
+  <!-- Tela -->
+  <rect x="132" y="164" width="248" height="184" fill="#e8f3f5"/>
+  <rect x="132" y="164" width="248" height="12" fill="#c3dce2"/>
+  <rect x="132" y="300" width="248" height="4" fill="#d3e6ea"/>
+  <!-- Tubo enrollado -->
+  <rect x="116" y="128" width="280" height="44" rx="22" fill="#f2b84b"/>
+  <rect x="116" y="140" width="280" height="8" fill="#f7cf7f"/>
+  <!-- Soportes -->
+  <rect x="108" y="124" width="22" height="52" rx="7" fill="#c98d22"/>
+  <rect x="382" y="124" width="22" height="52" rx="7" fill="#c98d22"/>
+  <!-- Contrapeso -->
+  <rect x="124" y="342" width="264" height="22" rx="11" fill="#f2b84b"/>
+  <!-- Cadena -->
+  <g fill="#cfe6eb">
+    <circle cx="393" cy="190" r="5"/>
+    <circle cx="393" cy="206" r="5"/>
+    <circle cx="393" cy="222" r="5"/>
+    <circle cx="393" cy="238" r="5"/>
+    <circle cx="393" cy="254" r="5"/>
+    <circle cx="393" cy="270" r="5"/>
+    <circle cx="393" cy="286" r="5"/>
+    <circle cx="393" cy="302" r="5"/>
+    <circle cx="393" cy="318" r="5"/>
+  </g>
+</svg>
